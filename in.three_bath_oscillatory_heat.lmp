@@ -33,7 +33,8 @@ units           metal
 dimension       3
 atom_style      atomic
 boundary        f p p
-newton          on
+# KOKKOS with the default full neighbor list requires newton off.
+newton          off
 
 read_data       three_bath_cu_ar.data
 
