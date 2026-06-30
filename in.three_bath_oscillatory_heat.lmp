@@ -1,0 +1,242 @@
+# Three-reservoir Cu/Ar molecular-dynamics demonstration of oscillatory
+# heat-reservoir temperatures mediated by a nonreciprocal oscillator network.
+#
+# Geometry/data:
+#   python3 make_three_bath_data.py --output three_bath_cu_ar.data
+#
+# Run on many cores, for example:
+#   mpirun -np 16 lmp -in in.three_bath_oscillatory_heat.lmp
+#
+# Model connection to Loos et al., Sci. Rep. 13, 4517 (2023):
+#   - explicit Ar reservoirs,
+#   - Cu nanoparticles inside the reservoirs,
+#   - fixed Cu walls separating the reservoirs,
+#   - LJ Ar-Ar, Cu-Cu, Ar-Cu interactions,
+#   - external feedback/controller forces acting on nanoparticle COMs,
+#   - Langevin thermostats for the reservoirs.  The paper used Nose-Hoover in
+#     production and checked that Langevin thermostats reproduce the effect.
+#
+# Here three reservoirs are used.  Their temperatures are not prescribed during
+# production.  They evolve due to heat exchange with the Cu nanoparticles.  A
+# weak Langevin bath at Tamb acts only as the additional heat outflow that
+# prevents the nonconservative three-oscillator coupling from producing an
+# unlimited temperature growth.
+#
+# The COM feedback force uses the same force-ratio matrix as the Mathematica
+# and Python checks:
+#   F = [ 1.00  0.14  0.06
+#         0.06  1.00  0.14
+#         0.14  0.06  1.00 ].
+
+clear
+units           metal
+dimension       3
+atom_style      atomic
+boundary        f p p
+newton          on
+
+read_data       three_bath_cu_ar.data
+
+# ----------------------------- Force field -----------------------------
+# LJ parameters from the Scientific Reports paper:
+#   Ar-Ar: epsilon = 0.0104 eV, sigma = 3.405 A
+#   Cu-Cu: epsilon = 0.4093 eV, sigma = 2.338 A
+# Lorentz-Berthelot Ar-Cu:
+#   epsilon = sqrt(0.0104*0.4093) = 0.065246 eV
+#   sigma   = (3.405+2.338)/2     = 2.8715 A
+
+pair_style      lj/cut 10.0
+pair_modify     shift yes
+
+# Ar-Ar inside the same reservoir.
+pair_coeff      1 1 0.0104 3.405
+pair_coeff      2 2 0.0104 3.405
+pair_coeff      3 3 0.0104 3.405
+
+# Different Ar reservoirs are independent, as in the paper.
+pair_coeff      1 2 0.0 3.405
+pair_coeff      1 3 0.0 3.405
+pair_coeff      2 3 0.0 3.405
+
+# Cu-Cu for nanoparticles and fixed Cu walls.
+pair_coeff      4 4 0.4093 2.338
+pair_coeff      5 5 0.4093 2.338
+pair_coeff      6 6 0.4093 2.338
+pair_coeff      7 7 0.4093 2.338
+pair_coeff      4 5 0.4093 2.338
+pair_coeff      4 6 0.4093 2.338
+pair_coeff      4 7 0.4093 2.338
+pair_coeff      5 6 0.4093 2.338
+pair_coeff      5 7 0.4093 2.338
+pair_coeff      6 7 0.4093 2.338
+
+# Ar-Cu interactions.
+pair_coeff      1 4 0.065246 2.8715
+pair_coeff      1 5 0.065246 2.8715
+pair_coeff      1 6 0.065246 2.8715
+pair_coeff      1 7 0.065246 2.8715
+pair_coeff      2 4 0.065246 2.8715
+pair_coeff      2 5 0.065246 2.8715
+pair_coeff      2 6 0.065246 2.8715
+pair_coeff      2 7 0.065246 2.8715
+pair_coeff      3 4 0.065246 2.8715
+pair_coeff      3 5 0.065246 2.8715
+pair_coeff      3 6 0.065246 2.8715
+pair_coeff      3 7 0.065246 2.8715
+
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+# ----------------------------- Groups -----------------------------
+group           ar1 type 1
+group           ar2 type 2
+group           ar3 type 3
+group           np1 type 4
+group           np2 type 5
+group           np3 type 6
+group           walls type 7
+group           argon union ar1 ar2 ar3
+group           nanoparticles union np1 np2 np3
+group           mobile union argon nanoparticles
+
+velocity        walls set 0.0 0.0 0.0
+fix             freeze walls setforce 0.0 0.0 0.0
+
+# Reservoir temperatures measured from Ar atoms.
+compute         Tar1 ar1 temp
+compute         Tar2 ar2 temp
+compute         Tar3 ar3 temp
+compute         Tnp1 np1 temp
+compute         Tnp2 np2 temp
+compute         Tnp3 np3 temp
+
+# ----------------------------- Time scales -----------------------------
+variable        dt equal 0.001          # ps = 1 fs
+variable        thermoEvery equal 1000  # 1 ps
+variable        dumpEvery equal 10000   # 10 ps
+variable        equilSteps equal 50000  # 50 ps; increase for production
+variable        prodSteps equal 15000000 # 15 ns at timestep 1 fs
+timestep        ${dt}
+
+# ----------------------------- Controller parameters -----------------------------
+# Trap centers from the generated data geometry.
+variable        x01 equal 47.5
+variable        x02 equal 142.5
+variable        x03 equal 237.5
+
+# COM displacements in Angstrom.
+variable        u1 equal xcm(np1,x)-v_x01
+variable        u2 equal xcm(np2,x)-v_x02
+variable        u3 equal xcm(np3,x)-v_x03
+
+# Force matrix ratios, multiplied by kforce.
+# kforce = 0.01 eV/A^2 corresponds to 1 eV/nm^2 from the paper.
+variable        kforce equal 0.01
+variable        f11 equal 1.00
+variable        f12 equal 0.14
+variable        f13 equal 0.06
+variable        f21 equal 0.06
+variable        f22 equal 1.00
+variable        f23 equal 0.14
+variable        f31 equal 0.14
+variable        f32 equal 0.06
+variable        f33 equal 1.00
+
+variable        nnp1 equal count(np1)
+variable        nnp2 equal count(np2)
+variable        nnp3 equal count(np3)
+
+# Total feedback force on each nanoparticle COM.
+variable        Fcom1 equal -v_kforce*(v_f11*v_u1+v_f12*v_u2+v_f13*v_u3)
+variable        Fcom2 equal -v_kforce*(v_f21*v_u1+v_f22*v_u2+v_f23*v_u3)
+variable        Fcom3 equal -v_kforce*(v_f31*v_u1+v_f32*v_u2+v_f33*v_u3)
+
+# Per-atom force, so the sum over nanoparticle atoms equals Fcom.
+variable        Fatom1 equal v_Fcom1/v_nnp1
+variable        Fatom2 equal v_Fcom2/v_nnp2
+variable        Fatom3 equal v_Fcom3/v_nnp3
+
+# ----------------------------- Reservoir leakage -----------------------------
+# Production reservoirs are not driven by an oscillatory temperature target.
+# Their temperatures change because Ar exchanges heat with the nanoparticles.
+# The following weak Langevin thermostat is only the external heat outflow:
+# for an isolated reservoir it would slowly relax toward Tamb with damping
+# time leakDamp, but it should be much weaker than the equilibration thermostat.
+variable        Tamb equal 110.0
+variable        leakDamp equal 200.0      # ps; increase for weaker external leakage
+
+# Initial reservoir temperatures.  These are imposed only before production.
+variable        Tinit1 equal 173.5
+variable        Tinit2 equal 143.5
+variable        Tinit3 equal 125.5
+
+# ----------------------------- Initialization/equilibration -----------------------------
+thermo          ${thermoEvery}
+thermo_style    custom step time temp c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 pe ke etotal press
+
+# Short conservative relaxation of bad contacts before thermostats/controller.
+min_style       cg
+minimize        1.0e-6 1.0e-8 1000 10000
+
+velocity        ar1 create ${Tinit1} 17351 mom yes rot yes dist gaussian
+velocity        ar2 create ${Tinit2} 14352 mom yes rot yes dist gaussian
+velocity        ar3 create ${Tinit3} 14353 mom yes rot yes dist gaussian
+velocity        nanoparticles create 120.0 24591 mom yes rot yes dist gaussian
+
+fix             int mobile nve
+fix             eq1 ar1 langevin ${Tinit1} ${Tinit1} 0.1 93101 zero yes tally yes
+fix             eq2 ar2 langevin ${Tinit2} ${Tinit2} 0.1 93102 zero yes tally yes
+fix             eq3 ar3 langevin ${Tinit3} ${Tinit3} 0.1 93103 zero yes tally yes
+fix_modify      eq1 temp Tar1
+fix_modify      eq2 temp Tar2
+fix_modify      eq3 temp Tar3
+
+run             ${equilSteps}
+
+unfix           eq1
+unfix           eq2
+unfix           eq3
+reset_timestep  0
+
+# ----------------------------- Production -----------------------------
+# Weak external heat outflows.  These are not the heat reservoirs whose
+# temperatures we want to observe; the observed reservoirs are the explicit
+# Ar groups ar1/ar2/ar3.  The weak leakage just stabilizes the long-time run.
+fix             leak1 ar1 langevin ${Tamb} ${Tamb} ${leakDamp} 42001 zero yes tally yes
+fix             leak2 ar2 langevin ${Tamb} ${Tamb} ${leakDamp} 42002 zero yes tally yes
+fix             leak3 ar3 langevin ${Tamb} ${Tamb} ${leakDamp} 42003 zero yes tally yes
+fix_modify      leak1 temp Tar1
+fix_modify      leak2 temp Tar2
+fix_modify      leak3 temp Tar3
+
+# COM feedback/controller forces.  The force is distributed uniformly over
+# atoms of the corresponding nanoparticle.
+fix             fb1 np1 addforce v_Fatom1 0.0 0.0
+fix             fb2 np2 addforce v_Fatom2 0.0 0.0
+fix             fb3 np3 addforce v_Fatom3 0.0 0.0
+
+variable        timePs equal time
+variable        Qleak1 equal f_leak1
+variable        Qleak2 equal f_leak2
+variable        Qleak3 equal f_leak3
+variable        X1 equal xcm(np1,x)
+variable        X2 equal xcm(np2,x)
+variable        X3 equal xcm(np3,x)
+
+fix             obs all ave/time ${thermoEvery} 1 ${thermoEvery} &
+                v_timePs v_Tamb v_leakDamp &
+                c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 &
+                v_X1 v_X2 v_X3 v_u1 v_u2 v_u3 &
+                v_Fcom1 v_Fcom2 v_Fcom3 v_Qleak1 v_Qleak2 v_Qleak3 &
+                file three_bath_observables.dat &
+                title1 "# step time_ps Tamb leakDamp Tar1 Tar2 Tar3 Tnp1 Tnp2 Tnp3 X1 X2 X3 u1 u2 u3 Fcom1 Fcom2 Fcom3 Qleak1 Qleak2 Qleak3"
+
+dump            traj mobile custom ${dumpEvery} three_bath_traj.lammpstrj id type x y z vx vy vz
+dump_modify     traj sort id
+
+thermo_style    custom step time v_Tamb c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 v_u1 v_u2 v_u3 v_Fcom1 v_Fcom2 v_Fcom3 f_leak1 f_leak2 f_leak3 etotal
+
+run             ${prodSteps}
+
+write_restart   three_bath_oscillatory_heat.restart
+print           "Done. Main output: three_bath_observables.dat"

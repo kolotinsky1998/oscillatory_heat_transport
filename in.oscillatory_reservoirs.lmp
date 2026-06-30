@@ -1,0 +1,150 @@
+# Coarse-grained LAMMPS demonstration of oscillatory heat-reservoir temperatures
+# through three nonreciprocally coupled trapped nanoparticles.
+#
+# Run on one core:
+#   lmp -in in.oscillatory_reservoirs.lmp
+# or
+#   mpirun -np 1 lmp -in in.oscillatory_reservoirs.lmp
+#
+# Motivation and MD analogy:
+# Loos et al., Sci. Rep. 13, 4517 (2023), used LAMMPS all-atom MD with
+# copper nanoparticles in independent argon reservoirs.  The COM dynamics is
+# described by underdamped Langevin equations with harmonic traps and external
+# nonreciprocal feedback forces.  This file keeps exactly that effective layer,
+# but uses three coarse-grained nanoparticle COM particles so the model runs
+# quickly on a single CPU core.
+#
+# Force convention:
+#   q'' + gamma q' + F q = eta(t)
+# so the deterministic force applied by LAMMPS is -F q.
+#
+# The interaction-ratio matrix is the one used in oscillatory_reservoir_demo.wl:
+#   F = [ 1.00  0.14  0.06
+#         0.06  1.00  0.14
+#         0.14  0.06  1.00 ]
+# This is a closed three-site nonreciprocal chain.  The off-diagonal ratios
+# are 0.14/0.06, matching the Mathematica construction.
+
+clear
+units           lj
+dimension       3
+atom_style      atomic
+boundary        f f f
+newton          off
+
+variable        dt equal 0.002
+variable        nsteps equal 80000
+variable        sample equal 100
+
+region          box block -5 5 -1 1 -1 1 units box
+create_box      1 box
+create_atoms    1 single  0.35 0.0 0.0 units box
+create_atoms    1 single -0.10 0.0 0.0 units box
+create_atoms    1 single -0.30 0.0 0.0 units box
+
+mass            1 1.0
+
+group           p1 id 1
+group           p2 id 2
+group           p3 id 3
+
+velocity        all set 0.0 0.0 0.0
+timestep        ${dt}
+
+# No conservative pair interactions are used.  All couplings below are
+# explicit feedback forces, which is the LAMMPS analogue of the controller in
+# the Scientific Reports setup.
+pair_style      zero 10.0
+pair_coeff      * *
+
+compute         x1 p1 com
+compute         x2 p2 com
+compute         x3 p3 com
+
+# One-dimensional kinetic temperatures for the three coarse-grained particles.
+compute         tx1 p1 temp/partial 1 0 0
+compute         tx2 p2 temp/partial 1 0 0
+compute         tx3 p3 temp/partial 1 0 0
+
+variable        xx1 equal c_x1[1]
+variable        xx2 equal c_x2[1]
+variable        xx3 equal c_x3[1]
+
+# F matrix entries.
+variable        f11 equal 1.00
+variable        f12 equal 0.14
+variable        f13 equal 0.06
+variable        f21 equal 0.06
+variable        f22 equal 1.00
+variable        f23 equal 0.14
+variable        f31 equal 0.14
+variable        f32 equal 0.06
+variable        f33 equal 1.00
+
+# Deterministic oscillator forces: force_i = -sum_j F_ij x_j.
+variable        force1 equal -(v_f11*v_xx1+v_f12*v_xx2+v_f13*v_xx3)
+variable        force2 equal -(v_f21*v_xx1+v_f22*v_xx2+v_f23*v_xx3)
+variable        force3 equal -(v_f31*v_xx1+v_f32*v_xx2+v_f33*v_xx3)
+
+# Reservoir-temperature model.
+# From the Mathematica script, for gamma=0.1, kappa=20, drainRate=0.98:
+#   dT/dt = kappa gamma S T - drainRate (T - Tamb 1)
+# with Tamb=1.0 and initial temperatures {1.45, 0.95, 0.65}.
+# The closed-form solution below is used as the time-dependent Langevin target.
+# It contains a damped complex pair with frequency omega = 0.1396654411.
+variable        Tss equal 0.39140357578686447
+variable        Cfast equal 0.6252630908798021
+variable        lamfast equal -2.503809522
+variable        lamr equal -0.042796722
+variable        omega equal 0.13966544107302703
+
+variable        A1 equal 0.43333333333333324
+variable        B1 equal -0.17320508075688648
+variable        A2 equal -0.06666666666666665
+variable        B2 equal 0.461880215351701
+variable        A3 equal -0.3666666666666666
+variable        B3 equal -0.28867513459481287
+
+variable        T1 equal v_Tss+v_Cfast*exp(v_lamfast*time)+exp(v_lamr*time)*(v_A1*cos(v_omega*time)+v_B1*sin(v_omega*time))
+variable        T2 equal v_Tss+v_Cfast*exp(v_lamfast*time)+exp(v_lamr*time)*(v_A2*cos(v_omega*time)+v_B2*sin(v_omega*time))
+variable        T3 equal v_Tss+v_Cfast*exp(v_lamfast*time)+exp(v_lamr*time)*(v_A3*cos(v_omega*time)+v_B3*sin(v_omega*time))
+
+variable        damp equal 10.0
+variable        seed1 equal 21841
+variable        seed2 equal 45721
+variable        seed3 equal 79333
+
+fix             int all nve
+
+# Independent Langevin reservoirs with time-dependent temperatures.
+fix             bath1 p1 langevin v_T1 v_T1 ${damp} ${seed1} tally yes zero yes
+fix             bath2 p2 langevin v_T2 v_T2 ${damp} ${seed2} tally yes zero yes
+fix             bath3 p3 langevin v_T3 v_T3 ${damp} ${seed3} tally yes zero yes
+fix_modify      bath1 temp tx1
+fix_modify      bath2 temp tx2
+fix_modify      bath3 temp tx3
+
+# Nonreciprocal feedback forces.
+fix             nr1 p1 addforce v_force1 0.0 0.0
+fix             nr2 p2 addforce v_force2 0.0 0.0
+fix             nr3 p3 addforce v_force3 0.0 0.0
+
+# Suppress transverse motion so the model is the intended 1D Langevin system.
+fix             oneD all setforce NULL 0.0 0.0
+
+thermo          ${sample}
+thermo_style    custom step time v_T1 v_T2 v_T3 c_tx1 c_tx2 c_tx3 v_xx1 v_xx2 v_xx3 f_bath1 f_bath2 f_bath3
+
+variable        tm equal time
+variable        Q1 equal f_bath1
+variable        Q2 equal f_bath2
+variable        Q3 equal f_bath3
+fix             out all ave/time ${sample} 1 ${sample} v_tm v_T1 v_T2 v_T3 v_xx1 v_xx2 v_xx3 v_force1 v_force2 v_force3 v_Q1 v_Q2 v_Q3 &
+                file reservoir_temperatures.dat &
+                title1 "# step time T1 T2 T3 x1 x2 x3 F1 F2 F3 Qlangevin1 Qlangevin2 Qlangevin3"
+
+run             ${nsteps}
+
+write_dump      all custom final_oscillatory_reservoirs.dump id type x y z vx vy vz
+
+print           "Done. Data: reservoir_temperatures.dat. Plot with: gnuplot plot_reservoir_temperatures.gp"
