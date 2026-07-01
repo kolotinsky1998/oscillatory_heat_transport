@@ -1,0 +1,15 @@
+quantity,value,unit
+N_Cu per nanoparticle,1055,atoms
+M_NP,1.1132424938010257e-22,kg
+R_NP,1.44,nm
+Ar number density,29.764966789764777,nm^-3
+Ar mass density,1974.4654605293763,kg/m^3
+K diagonal,0.01,eV/A^2
+K diagonal,0.16021766199999998,N/m
+t0=sqrt(M/K),26.35965323719107,ps
+Gamma_ref,4.67e-12,kg/s
+Gamma_star,1.1057750786836598,dimensionless
+M/Gamma_ref,23.838169032141877,ps
+M/(2 Gamma_ref),11.919084516070939,ps
+leakDamp,200.0,ps
+r_star=2 t0/leakDamp,0.26359653237191066,dimensionless
