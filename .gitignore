@@ -1,0 +1,9 @@
+*.lammpstrj
+*.restart
+slurm-*.out
+slurm-*.err
+*_observables.dat
+log.lammps
+__pycache__/
+*.pyc
+.DS_Store
