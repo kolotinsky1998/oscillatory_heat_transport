@@ -102,8 +102,11 @@ def main() -> None:
     lx = args.compartment_length
     ly = args.box_y
     lz = args.box_z
-    xlo = -0.5 * args.wall_thickness
-    xhi = 3.0 * lx + 0.5 * args.wall_thickness
+    # Keep fixed-boundary wall atoms strictly inside the nonperiodic x box.
+    # LAMMPS can fail atom assignment when atoms sit exactly on xhi.
+    x_pad = 1.0e-3
+    xlo = -0.5 * args.wall_thickness - x_pad
+    xhi = 3.0 * lx + 0.5 * args.wall_thickness + x_pad
     ylo, yhi = -0.5 * ly, 0.5 * ly
     zlo, zhi = -0.5 * lz, 0.5 * lz
 
