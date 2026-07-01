@@ -84,10 +84,13 @@ compute         Tar3 ar3 temp
 compute         KEbead1 bead1 ke
 compute         KEbead2 bead2 ke
 compute         KEbead3 bead3 ke
+compute         PEall all pe
+compute         KEall all ke
 variable        kB equal 8.617333262e-5
 variable        Tbead1 equal 2.0*c_KEbead1/(3.0*v_kB)
 variable        Tbead2 equal 2.0*c_KEbead2/(3.0*v_kB)
 variable        Tbead3 equal 2.0*c_KEbead3/(3.0*v_kB)
+variable        Etot equal c_PEall+c_KEall
 
 # ----------------------------- Time scales -----------------------------
 variable        dt equal 0.001
@@ -199,7 +202,7 @@ fix             obs all ave/time ${thermoEvery} 1 ${thermoEvery} &
                 v_timePs &
                 c_Tar1 c_Tar2 c_Tar3 v_Tbead1 v_Tbead2 v_Tbead3 &
                 v_X1 v_X2 v_X3 v_u1 v_u2 v_u3 &
-                v_Fbead1 v_Fbead2 v_Fbead3 etotal &
+                v_Fbead1 v_Fbead2 v_Fbead3 v_Etot &
                 v_uy1 v_uy2 v_uy3 v_uz1 v_uz2 v_uz3 &
                 v_Pfb1 v_Pfb2 v_Pfb3 v_PfbTot &
                 file bead_open_chain_observables.dat &
