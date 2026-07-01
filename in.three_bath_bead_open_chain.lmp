@@ -1,0 +1,216 @@
+# Coarse-grained three-reservoir MD demonstration of finite-bath temperature
+# redistribution through an open-chain nonreciprocal oscillator network.
+#
+# Generate data first:
+#   python3 make_three_bath_bead_data.py --output three_bath_bead.data
+#
+# This is not a quantitative Cu nanoparticle model.  It is an accelerated
+# Ar/bead realization designed to make the PRE2025 finite-reservoir relaxation
+# visible in direct MD over ns-scale trajectories.
+
+clear
+units           metal
+dimension       3
+atom_style      atomic
+boundary        f p p
+newton          off
+
+read_data       three_bath_bead.data
+
+# ----------------------------- Force field -----------------------------
+pair_style      lj/cut 10.0
+pair_modify     shift yes
+
+# Ar-Ar, same LJ parameters as the Sci. Rep. Cu/Ar paper.
+pair_coeff      1 1 0.0104 3.405
+pair_coeff      2 2 0.0104 3.405
+pair_coeff      3 3 0.0104 3.405
+
+# Independent reservoirs: no Ar-Ar interaction across reservoir labels.
+pair_coeff      1 2 0.0 3.405
+pair_coeff      1 3 0.0 3.405
+pair_coeff      2 3 0.0 3.405
+
+# Coarse bead interactions.  Bead-bead direct LJ is disabled; coupling is only
+# via the external controller.  Ar-bead LJ is intentionally stronger/larger than
+# Ar-Ar to provide visible energy exchange in a tiny bath.
+pair_coeff      4 4 0.0 5.0
+pair_coeff      5 5 0.0 5.0
+pair_coeff      6 6 0.0 5.0
+pair_coeff      4 5 0.0 5.0
+pair_coeff      4 6 0.0 5.0
+pair_coeff      5 6 0.0 5.0
+
+pair_coeff      1 4 0.0800 5.0
+pair_coeff      1 5 0.0000 5.0
+pair_coeff      1 6 0.0000 5.0
+pair_coeff      2 4 0.0000 5.0
+pair_coeff      2 5 0.0800 5.0
+pair_coeff      2 6 0.0000 5.0
+pair_coeff      3 4 0.0000 5.0
+pair_coeff      3 5 0.0000 5.0
+pair_coeff      3 6 0.0800 5.0
+
+# Fixed wall atoms confine Ar and beads.
+pair_coeff      7 7 0.4093 2.338
+pair_coeff      1 7 0.065246 2.8715
+pair_coeff      2 7 0.065246 2.8715
+pair_coeff      3 7 0.065246 2.8715
+pair_coeff      4 7 0.0800 5.0
+pair_coeff      5 7 0.0800 5.0
+pair_coeff      6 7 0.0800 5.0
+
+neighbor        2.0 bin
+neigh_modify    every 1 delay 0 check yes
+
+# ----------------------------- Groups -----------------------------
+group           ar1 type 1
+group           ar2 type 2
+group           ar3 type 3
+group           bead1 type 4
+group           bead2 type 5
+group           bead3 type 6
+group           walls type 7
+group           argon union ar1 ar2 ar3
+group           beads union bead1 bead2 bead3
+group           mobile union argon beads
+
+velocity        walls set 0.0 0.0 0.0
+fix             freeze walls setforce 0.0 0.0 0.0
+
+compute         Tar1 ar1 temp
+compute         Tar2 ar2 temp
+compute         Tar3 ar3 temp
+compute         KEbead1 bead1 ke
+compute         KEbead2 bead2 ke
+compute         KEbead3 bead3 ke
+variable        kB equal 8.617333262e-5
+variable        Tbead1 equal 2.0*c_KEbead1/(3.0*v_kB)
+variable        Tbead2 equal 2.0*c_KEbead2/(3.0*v_kB)
+variable        Tbead3 equal 2.0*c_KEbead3/(3.0*v_kB)
+
+# ----------------------------- Time scales -----------------------------
+variable        dt equal 0.001
+variable        thermoEvery equal 1000
+variable        dumpEvery equal 10000
+variable        equilSteps equal 100000       # 100 ps
+variable        prodSteps equal 10000000      # 10 ns
+timestep        ${dt}
+
+# ----------------------------- Controller parameters -----------------------------
+variable        x01 equal 21.0
+variable        x02 equal 63.0
+variable        x03 equal 105.0
+variable        y01 equal 0.0
+variable        y02 equal 0.0
+variable        y03 equal 0.0
+variable        z01 equal 0.0
+variable        z02 equal 0.0
+variable        z03 equal 0.0
+
+variable        u1 equal xcm(bead1,x)-v_x01
+variable        u2 equal xcm(bead2,x)-v_x02
+variable        u3 equal xcm(bead3,x)-v_x03
+variable        uy1 equal xcm(bead1,y)-v_y01
+variable        uy2 equal xcm(bead2,y)-v_y02
+variable        uy3 equal xcm(bead3,y)-v_y03
+variable        uz1 equal xcm(bead1,z)-v_z01
+variable        uz2 equal xcm(bead2,z)-v_z02
+variable        uz3 equal xcm(bead3,z)-v_z03
+
+# Accelerated conservative open-chain matrix:
+# A = [[1.0, 0.6, 0.0], [0.3, 1.0, 0.6], [0.0, 0.3, 1.0]]
+# It satisfies d_i A_ij = d_j A_ji with d = [1, 2, 4], so the target finite
+# bath stationary ratio is T proportional [1, 1/2, 1/4].
+variable        kforce equal 0.20
+variable        kperp equal 0.20
+variable        f11 equal 1.00
+variable        f12 equal 0.60
+variable        f13 equal 0.00
+variable        f21 equal 0.30
+variable        f22 equal 1.00
+variable        f23 equal 0.60
+variable        f31 equal 0.00
+variable        f32 equal 0.30
+variable        f33 equal 1.00
+
+variable        Fbead1 equal -v_kforce*(v_f11*v_u1+v_f12*v_u2+v_f13*v_u3)
+variable        Fbead2 equal -v_kforce*(v_f21*v_u1+v_f22*v_u2+v_f23*v_u3)
+variable        Fbead3 equal -v_kforce*(v_f31*v_u1+v_f32*v_u2+v_f33*v_u3)
+variable        FbeadY1 equal -v_kperp*v_uy1
+variable        FbeadY2 equal -v_kperp*v_uy2
+variable        FbeadY3 equal -v_kperp*v_uy3
+variable        FbeadZ1 equal -v_kperp*v_uz1
+variable        FbeadZ2 equal -v_kperp*v_uz2
+variable        FbeadZ3 equal -v_kperp*v_uz3
+
+variable        Vx1 equal vcm(bead1,x)
+variable        Vx2 equal vcm(bead2,x)
+variable        Vx3 equal vcm(bead3,x)
+variable        Pfb1 equal v_Fbead1*v_Vx1
+variable        Pfb2 equal v_Fbead2*v_Vx2
+variable        Pfb3 equal v_Fbead3*v_Vx3
+variable        PfbTot equal v_Pfb1+v_Pfb2+v_Pfb3
+
+# ----------------------------- Initialization/equilibration -----------------------------
+variable        Tinit equal 140.0
+
+thermo          ${thermoEvery}
+thermo_style    custom step time temp c_Tar1 c_Tar2 c_Tar3 v_Tbead1 v_Tbead2 v_Tbead3 pe ke etotal press
+
+min_style       cg
+minimize        1.0e-6 1.0e-8 1000 10000
+
+velocity        ar1 create ${Tinit} 17351 mom yes rot yes dist gaussian
+velocity        ar2 create ${Tinit} 14352 mom yes rot yes dist gaussian
+velocity        ar3 create ${Tinit} 14353 mom yes rot yes dist gaussian
+velocity        beads create ${Tinit} 24591 mom yes rot yes dist gaussian
+
+fix             int mobile nve
+fix             eq1 ar1 langevin ${Tinit} ${Tinit} 0.2 93101 zero yes tally yes
+fix             eq2 ar2 langevin ${Tinit} ${Tinit} 0.2 93102 zero yes tally yes
+fix             eq3 ar3 langevin ${Tinit} ${Tinit} 0.2 93103 zero yes tally yes
+fix             eqb beads langevin ${Tinit} ${Tinit} 0.2 93104 zero yes tally yes
+fix_modify      eq1 temp Tar1
+fix_modify      eq2 temp Tar2
+fix_modify      eq3 temp Tar3
+
+run             ${equilSteps}
+
+unfix           eq1
+unfix           eq2
+unfix           eq3
+unfix           eqb
+reset_timestep  0
+
+# ----------------------------- Production -----------------------------
+# No production thermostat.  The reservoir temperatures evolve due to bead-Ar
+# energy exchange and controller work.
+fix             fb1 bead1 addforce v_Fbead1 v_FbeadY1 v_FbeadZ1
+fix             fb2 bead2 addforce v_Fbead2 v_FbeadY2 v_FbeadZ2
+fix             fb3 bead3 addforce v_Fbead3 v_FbeadY3 v_FbeadZ3
+
+variable        timePs equal time
+variable        X1 equal xcm(bead1,x)
+variable        X2 equal xcm(bead2,x)
+variable        X3 equal xcm(bead3,x)
+
+fix             obs all ave/time ${thermoEvery} 1 ${thermoEvery} &
+                v_timePs &
+                c_Tar1 c_Tar2 c_Tar3 v_Tbead1 v_Tbead2 v_Tbead3 &
+                v_X1 v_X2 v_X3 v_u1 v_u2 v_u3 &
+                v_Fbead1 v_Fbead2 v_Fbead3 etotal &
+                v_uy1 v_uy2 v_uy3 v_uz1 v_uz2 v_uz3 &
+                v_Pfb1 v_Pfb2 v_Pfb3 v_PfbTot &
+                file bead_open_chain_observables.dat &
+                title1 "# step time_ps Tar1 Tar2 Tar3 Tbead1 Tbead2 Tbead3 X1 X2 X3 u1 u2 u3 Fbead1 Fbead2 Fbead3 Etot_eV uy1 uy2 uy3 uz1 uz2 uz3 Pfb1 Pfb2 Pfb3 PfbTot"
+
+dump            traj mobile custom ${dumpEvery} bead_open_chain_traj.lammpstrj id type x y z vx vy vz
+dump_modify     traj sort id
+
+thermo_style    custom step time c_Tar1 c_Tar2 c_Tar3 v_Tbead1 v_Tbead2 v_Tbead3 v_u1 v_u2 v_u3 v_PfbTot etotal
+
+run             ${prodSteps}
+
+write_restart   bead_open_chain.restart
+print           "Done. Main output: bead_open_chain_observables.dat"

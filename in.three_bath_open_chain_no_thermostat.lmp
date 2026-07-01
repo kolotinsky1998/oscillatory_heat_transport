@@ -125,15 +125,29 @@ timestep        ${dt}
 variable        x01 equal 47.5
 variable        x02 equal 142.5
 variable        x03 equal 237.5
+variable        y01 equal 0.0
+variable        y02 equal 0.0
+variable        y03 equal 0.0
+variable        z01 equal 0.0
+variable        z02 equal 0.0
+variable        z03 equal 0.0
 
-# COM displacements in Angstrom.
+# COM displacements in Angstrom.  The nonreciprocal oscillator coordinate is x;
+# y and z are held by ordinary transverse harmonic traps.
 variable        u1 equal xcm(np1,x)-v_x01
 variable        u2 equal xcm(np2,x)-v_x02
 variable        u3 equal xcm(np3,x)-v_x03
+variable        uy1 equal xcm(np1,y)-v_y01
+variable        uy2 equal xcm(np2,y)-v_y02
+variable        uy3 equal xcm(np3,y)-v_y03
+variable        uz1 equal xcm(np1,z)-v_z01
+variable        uz2 equal xcm(np2,z)-v_z02
+variable        uz3 equal xcm(np3,z)-v_z03
 
 # Force matrix ratios, multiplied by kforce.
 # kforce = 0.01 eV/A^2 corresponds to 1 eV/nm^2 from the paper.
 variable        kforce equal 0.01
+variable        kperp equal 0.01
 variable        f11 equal 1.00
 variable        f12 equal 0.14
 variable        f13 equal 0.00
@@ -157,6 +171,12 @@ variable        Fcom3 equal -v_kforce*(v_f31*v_u1+v_f32*v_u2+v_f33*v_u3)
 variable        Fatom1 equal v_Fcom1/v_nnp1
 variable        Fatom2 equal v_Fcom2/v_nnp2
 variable        Fatom3 equal v_Fcom3/v_nnp3
+variable        FatomY1 equal -v_kperp*v_uy1/v_nnp1
+variable        FatomY2 equal -v_kperp*v_uy2/v_nnp2
+variable        FatomY3 equal -v_kperp*v_uy3/v_nnp3
+variable        FatomZ1 equal -v_kperp*v_uz1/v_nnp1
+variable        FatomZ2 equal -v_kperp*v_uz2/v_nnp2
+variable        FatomZ3 equal -v_kperp*v_uz3/v_nnp3
 
 # ----------------------------- Initial reservoir temperature -----------------------------
 # Equal initial temperatures are imposed only during equilibration.  During
@@ -174,12 +194,13 @@ minimize        1.0e-6 1.0e-8 1000 10000
 velocity        ar1 create ${Tinit} 17351 mom yes rot yes dist gaussian
 velocity        ar2 create ${Tinit} 14352 mom yes rot yes dist gaussian
 velocity        ar3 create ${Tinit} 14353 mom yes rot yes dist gaussian
-velocity        nanoparticles create 120.0 24591 mom yes rot yes dist gaussian
+velocity        nanoparticles create ${Tinit} 24591 mom yes rot yes dist gaussian
 
 fix             int mobile nve
 fix             eq1 ar1 langevin ${Tinit} ${Tinit} 0.1 93101 zero yes tally yes
 fix             eq2 ar2 langevin ${Tinit} ${Tinit} 0.1 93102 zero yes tally yes
 fix             eq3 ar3 langevin ${Tinit} ${Tinit} 0.1 93103 zero yes tally yes
+fix             eqnp nanoparticles langevin ${Tinit} ${Tinit} 0.1 93104 zero yes tally yes
 fix_modify      eq1 temp Tar1
 fix_modify      eq2 temp Tar2
 fix_modify      eq3 temp Tar3
@@ -189,6 +210,7 @@ run             ${equilSteps}
 unfix           eq1
 unfix           eq2
 unfix           eq3
+unfix           eqnp
 reset_timestep  0
 
 # ----------------------------- Production -----------------------------
@@ -198,9 +220,9 @@ reset_timestep  0
 
 # COM feedback/controller forces.  The force is distributed uniformly over
 # atoms of the corresponding nanoparticle.
-fix             fb1 np1 addforce v_Fatom1 0.0 0.0
-fix             fb2 np2 addforce v_Fatom2 0.0 0.0
-fix             fb3 np3 addforce v_Fatom3 0.0 0.0
+fix             fb1 np1 addforce v_Fatom1 v_FatomY1 v_FatomZ1
+fix             fb2 np2 addforce v_Fatom2 v_FatomY2 v_FatomZ2
+fix             fb3 np3 addforce v_Fatom3 v_FatomY3 v_FatomZ3
 
 variable        timePs equal time
 variable        X1 equal xcm(np1,x)
@@ -211,14 +233,15 @@ fix             obs all ave/time ${thermoEvery} 1 ${thermoEvery} &
                 v_timePs &
                 c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 &
                 v_X1 v_X2 v_X3 v_u1 v_u2 v_u3 &
-                v_Fcom1 v_Fcom2 v_Fcom3 &
+                v_Fcom1 v_Fcom2 v_Fcom3 etotal &
+                v_uy1 v_uy2 v_uy3 v_uz1 v_uz2 v_uz3 &
                 file open_chain_no_thermostat_observables.dat &
-                title1 "# step time_ps Tar1 Tar2 Tar3 Tnp1 Tnp2 Tnp3 X1 X2 X3 u1 u2 u3 Fcom1 Fcom2 Fcom3"
+                title1 "# step time_ps Tar1 Tar2 Tar3 Tnp1 Tnp2 Tnp3 X1 X2 X3 u1 u2 u3 Fcom1 Fcom2 Fcom3 Etot_eV uy1 uy2 uy3 uz1 uz2 uz3"
 
 dump            traj mobile custom ${dumpEvery} open_chain_no_thermostat_traj.lammpstrj id type x y z vx vy vz
 dump_modify     traj sort id
 
-thermo_style    custom step time c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 v_u1 v_u2 v_u3 v_Fcom1 v_Fcom2 v_Fcom3 etotal
+thermo_style    custom step time c_Tar1 c_Tar2 c_Tar3 c_Tnp1 c_Tnp2 c_Tnp3 v_u1 v_u2 v_u3 v_uy1 v_uy2 v_uy3 v_uz1 v_uz2 v_uz3 v_Fcom1 v_Fcom2 v_Fcom3 etotal
 
 run             ${prodSteps}
 
