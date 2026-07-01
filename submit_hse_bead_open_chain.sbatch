@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=oht-bead
-#SBATCH --partition=cpu-e-quick
+#SBATCH --partition=rocky
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --time=01:00:00
+#SBATCH --constraint="type_a|type_b|type_c"
+#SBATCH --time=24:00:00
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
 
