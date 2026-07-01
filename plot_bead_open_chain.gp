@@ -48,9 +48,9 @@ set title "Coarse-grained open chain: bead transverse confinement"
 plot "bead_open_chain_observables.dat" using 2:19 with lines lw 2 title "uy1", \
      "bead_open_chain_observables.dat" using 2:20 with lines lw 2 title "uy2", \
      "bead_open_chain_observables.dat" using 2:21 with lines lw 2 title "uy3", \
-     "bead_open_chain_observables.dat" using 2:22 with lines lw 2 dt 2 title "uz1", \
-     "bead_open_chain_observables.dat" using 2:23 with lines lw 2 dt 2 title "uz2", \
-     "bead_open_chain_observables.dat" using 2:24 with lines lw 2 dt 2 title "uz3"
+     "bead_open_chain_observables.dat" using 2:22 with lines lw 2 title "uz1", \
+     "bead_open_chain_observables.dat" using 2:23 with lines lw 2 title "uz2", \
+     "bead_open_chain_observables.dat" using 2:24 with lines lw 2 title "uz3"
 
 set output "bead_open_chain_feedback_power.png"
 set xlabel "time (ps)"
