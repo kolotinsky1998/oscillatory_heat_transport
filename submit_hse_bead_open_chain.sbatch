@@ -6,8 +6,6 @@
 #SBATCH --time=01:00:00
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
-#SBATCH --mail-type=END,FAIL
-##SBATCH --mail-user=your_email@hse.ru
 
 set -euo pipefail
 
